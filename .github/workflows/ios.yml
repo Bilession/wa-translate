@@ -1,0 +1,39 @@
+name: Build iOS
+on:
+  push:
+    paths: ['ios.tar.xz']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build IPA (unsigned)
+        run: |
+          set -o pipefail
+          brew install xcodegen
+          tar -xJf ios.tar.xz
+          cd WaTranslateiOS
+          xcodegen generate
+          xcodebuild -version
+          if ! xcodebuild -project WaTranslate.xcodeproj -scheme WaTranslate -configuration Release \
+               -sdk iphoneos -derivedDataPath build \
+               CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build > build.log 2>&1; then
+            echo '## Build errors' >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -E "error:|Error:" build.log | sort -u | head -60 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -80 build.log
+            exit 1
+          fi
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/WaTranslate.app Payload/
+          zip -qry ../WA-Translate.ipa Payload
+          ls -la ../WA-Translate.ipa
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ios-build-${{ github.run_number }}
+          name: WA-Translate iOS build ${{ github.run_number }}
+          files: WA-Translate.ipa
